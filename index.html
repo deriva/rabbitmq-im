@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title></title>
+    <script type="text/javascript" src="Scripts/jquery.js"></script>
+    <script type="text/javascript" src="Scripts/browserMqtt.min.js"></script>
+    <script type="text/javascript" src="Scripts/mqfactory.js"></script>
+    <style type="text/css">
+        .leftfriend { width: 20%; float: left; border: 1px solid #808080 }
+            .leftfriend .selected { padding: 10px; background-color: rgb(222 134 134 / 0.29) }
+        .chatzone { width: 20%; float: left; border: 1px solid #808080 }
+            .chatzone .chatlist { border: 1px solid #808080; height: 300px; overflow-y: scroll; }
+    </style>
+</head>
+<body>
+
+
+    <div>
+        <h1>设置</h1>
+        <lable>Host: </lable><input id="txtHost" placeholder="192.168.1.249" value="192.168.1.249" />
+        <lable>Port: </lable><input id="txtPort" placeholder="15675" value="15675" />
+        <label>UserName: </label><input id="txtUserName" placeholder="username" value="bc2332r" />
+        <label>Password: </label><input id="txtPassword" placeholder="password" value="bc2332dsd0" />
+        <label>Protocol: </label><input id="txtProtocol" placeholder="ws" value="ws" />
+        <span class="constatus ">离线</span>
+        <input id="btnConnect" type="button" value="连接" />
+    </div>
+    <div>
+        <div class="leftfriend">
+            <ul>
+                <li data="mrli1" class="selected">mrli1</li>
+                <li data="mrli2">mrli2</li>
+                <li data="mrli3">mrli3</li>
+            </ul>
+        </div>
+        <div class="chatzone">
+            <div class="chatlist">
+                <ul id="lstLog"><li></li></ul>
+            </div>
+            <div class="chatsend">
+                <p><input type="text" value="" id="txtmsg" /></p>
+                <p><input type="button" value="发送" onclick="Chat.Send()" /></p>
+            </div>
+        </div>
+    </div>
+
+
+    <script type="text/javascript">
+
+        var mqclient;
+        var mqttOpts = {};
+        //var routingKey = 'Dcon.Logs.ServerWebShow';
+        var message;
+        var Chat = {
+            Init: function () {
+                Chat.Register();
+            },
+            Register: function () {
+                //选中聊天列表
+                $(".leftfriend li").on("click", function () {
+                    var routekey = Chat.GetSelectedKey();
+                    mqclient.once('onsus', Chat.mqUnsubscribeSuccess);
+                    mqclient.sus(Chat.GetSelectedKey());
+
+                    $(".leftfriend .selected").removeClass("selected");
+                    $(this).addClass("selected");
+
+                    //订阅成功后，仅注册一次事件(要考虑每次注册事件时，事件处理器调用的次数，如果仅用一次，就用once方法)
+                    //routingKey = $("#btnRoutingKey").val();
+                    mqclient.once('onss', Chat.mqSubscribeSuccess);
+                    //简单订阅
+                    mqclient.ss(Chat.GetSelectedKey());
+                });
+
+                //连接mqtt
+                $('#btnConnect').click(function () {
+                    mqttOpts = {
+                        host: (() => $('#txtHost').val())(),
+                        port: (() => $('#txtPort').val())(),
+                        username: (() => $('#txtUserName').val())(),
+                        password: (() => $('#txtPassword').val())(),
+                        //transformWsUrl方法用于在浏览器中使用MQTT的场景，默认情况下,MQTT自动生成的url为ws://ip:port形式，
+                        //然而服务器要求的格式是ws://ip:port/ws，所以MQTT提供了此接口用于在生成url时自定义url格式
+                        transformWsUrl: (url, opts, client) => { return opts.protocol && opts.protocol == 'ws' ? url + 'ws' : url; },
+                        // Math.random().toString(16).substr(2, 8)
+                        clientId: (() => { return 'littyclinet'; })()
+                    };
+                    var biz = {
+                        huanjing: function (handler, isOn) {
+                            if (isOn !== false) {
+                                this.ss(this.topics.huanjing, handler);
+                            } else {
+                                this.sus(this.topics.huanjing, handler);
+                            }
+                        },
+                        topics: {
+                            huanjing: '/hyj/huanjing/monitor'
+                        }
+                    };
+                    //系统初始化时注入连接选项
+                    mqfactory.inject(mqttOpts, biz);
+                    //创建mqclient单例
+                    mqclient = mqfactory.create();
+                    //注册mqclient的连接成功事件
+                    mqclient.on('connect', Chat.MQConnected);
+                });
+            },
+            MQConnected: function (res) {
+                $(".constatus").text("在线");
+            },
+            ///获取选中的订阅key
+            GetSelectedKey: function () {
+                return $(".leftfriend .selected").attr("data");
+            },
+            Send: function () {
+                var msg = $("#txtmsg").val();
+                var fm = Chat.FormartSendMsg(msg);
+                var queue = $(".leftfriend .selected").attr("data");
+                //发送消息
+                mqclient.pub(queue, fm);
+                //  $('#lstLog').append('<li>我: ' + msg + '</li>');
+            },
+            //订阅成功
+            mqSubscribeSuccess: function (res) {
+
+                mqclient.on(Chat.GetSelectedKey(), Chat.onMessageArrived);
+                $('#lstLog').append('<li>Subscribe successful.' + Chat.GetSelectedKey() + '</li>');
+            },
+            //取消订阅
+            mqUnsubscribeSuccess: function () {
+                mqclient.off(Chat.GetSelectedKey(), Chat.onMessageArrived);
+
+                $('#lstLog').append('<li>取消队列</li>');
+            },
+            //接受到消息处理
+            onMessageArrived: function (message) {
+                try {
+                    var json = JSON.parse(message.toString());
+
+
+                    $('#lstLog').append('<li>' + json.from + ': ' + json.msg + '</li>');
+
+                    $('#lstLog li').last().focus();
+                } catch (e) {
+                    console.log(e);
+                }
+            },
+            FormartSendMsg: function (msg) {
+                var t = { from: mqttOpts.clientId, msg: msg.toString(), to: Chat.GetSelectedKey() };
+                return JSON.stringify(t);
+            },
+
+
+        }
+
+
+        $(function () {
+            Chat.Init();
+
+
+
+        });
+    </script>
+</body>
+</html>
