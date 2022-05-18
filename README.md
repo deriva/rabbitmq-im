@@ -9,7 +9,8 @@ Rabbitmq
 rabbitmq-plugins enable rabbitmq_mqtt
 
 后台c#代码：发送消息到mqtt
- /// <summary>
+~~~
+/// <summary>
         /// 发送到队列
         /// </summary>
         /// <param name="message"></param>
@@ -36,4 +37,4 @@ rabbitmq-plugins enable rabbitmq_mqtt
             }
         }
         
-        
+~~~
